@@ -1,0 +1,15 @@
+# Entorno
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Datos sensibles y pesados (no subir)
+data/videos/
+*.mp4
+*.avi
+*.mov
+*.db
+models/*.pt
+models/*.onnx
+outputs/
