@@ -51,7 +51,7 @@ Sistema de reconocimiento automático de placas vehiculares (ALPR) pensado para 
 ## 🚀 Instalación
 
 ```powershell
-git clone <url-del-repo> lector_placas
+git clone https://github.com/anderson-sarmiento-briceno/Detector-de-placas.git lector_placas
 cd lector_placas
 
 # Entorno virtual
