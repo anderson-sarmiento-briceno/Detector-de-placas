@@ -1,14 +1,15 @@
-video: data/videos/prueba_1.mp4
-formato_placa: generico        # generico | colombia
+video: data/videos              # carpeta (procesa todos sus videos) o un archivo .mp4
+formato_placa: colombia        # generico | colombia (carro ABC123 y moto ABC12D)
 procesar_cada_n_frames: 2
 confianza_minima_deteccion: 0.4
 alto_minimo_caja_px: 15        # cajas más bajas no se intentan leer
 margen_recorte: 0.1            # margen extra alrededor de la placa (10 %)
 alto_recorte_ocr_px: 100       # altura a la que se escala el recorte antes del OCR
+proporcion_alto_linea_ocr: 0.6 # textos más bajos que 60 % del más alto se ignoran (municipio)
 ocr_usar_gpu: false
 votos_minimos_para_confirmar: 3
 mostrar_ventana: true
 guardar_video_salida: true
 ruta_bd: data/placas.db
 ruta_log: outputs/lecturas.csv
-modelo_detector: models/detector_placas.pt
+modelo_detector: models/detector_colombia.pt   # placas extranjeras: models/detector_placas.pt

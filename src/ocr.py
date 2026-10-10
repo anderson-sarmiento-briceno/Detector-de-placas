@@ -32,21 +32,50 @@ def preprocesar(recorte: np.ndarray, alto_objetivo: int) -> np.ndarray:
 
 
 class LectorOCR:
-    def __init__(self, usar_gpu: bool, margen: float, alto_objetivo: int) -> None:
+    def __init__(self, usar_gpu: bool, margen: float, alto_objetivo: int,
+                 proporcion_alto_linea: float) -> None:
         logger.info("Cargando EasyOCR (la primera vez descarga sus modelos)...")
         self.reader = easyocr.Reader(["en"], gpu=usar_gpu, verbose=False)
         self.margen = margen
         self.alto_objetivo = alto_objetivo
+        self.proporcion_alto_linea = proporcion_alto_linea
 
     def leer(self, imagen: np.ndarray, d: Deteccion) -> tuple[str, float]:
-        """Devuelve (texto crudo, confianza) de la línea principal de la placa.
+        """Devuelve (texto crudo, confianza) de la placa.
 
-        La línea principal es la de letras más grandes: así se ignoran textos
-        pequeños como el municipio o el nombre del estado/país.
+        Se quedan solo los textos grandes (≥ `proporcion_alto_linea` del más alto):
+        así se ignoran textos pequeños como el municipio. Los que quedan se unen en
+        orden de lectura (arriba→abajo, izquierda→derecha), lo que cubre las placas
+        de moto en dos líneas (ABC / 12D) y los textos que el OCR parte en dos.
         """
         recorte = preprocesar(recortar(imagen, d, self.margen), self.alto_objetivo)
         resultados = self.reader.readtext(recorte, allowlist=CARACTERES_PERMITIDOS)
         if not resultados:
             return "", 0.0
-        _, texto, conf = max(resultados, key=lambda r: r[0][2][1] - r[0][0][1])
-        return texto, float(conf)
+        return unir_lineas_grandes(resultados, self.proporcion_alto_linea)
+
+
+def unir_lineas_grandes(resultados: list, proporcion_alto: float) -> tuple[str, float]:
+    """Une los textos de EasyOCR cuyo alto sea al menos `proporcion_alto` del más alto.
+
+    Cada resultado de EasyOCR es (caja de 4 puntos, texto, confianza).
+    La confianza devuelta es la mínima de los textos unidos.
+    """
+    # La caja puede venir girada o con los puntos en otro orden: se usan min/max de los 4 puntos
+    def arriba(r) -> float:
+        return min(p[1] for p in r[0])
+
+    def izquierda(r) -> float:
+        return min(p[0] for p in r[0])
+
+    def alto(r) -> float:
+        return max(p[1] for p in r[0]) - arriba(r)
+
+    alto_max = max(alto(r) for r in resultados)
+    if alto_max <= 0:
+        return "", 0.0
+    grandes = [r for r in resultados if alto(r) >= proporcion_alto * alto_max]
+    # Fila = posición vertical en "unidades de alto de línea"; dentro de la fila, por x
+    grandes.sort(key=lambda r: (round(arriba(r) / alto_max), izquierda(r)))
+    texto = "".join(r[1] for r in grandes)
+    return texto, float(min(r[2] for r in grandes))

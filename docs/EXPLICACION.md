@@ -254,6 +254,36 @@ Luego: base de datos SQLite, alertas (caja roja + consola) y log CSV.
 
 ---
 
+## 6.1 Ajuste a Bogotá (video `moto_bogota.mp4`)
+
+Qué cambió y **por qué no es "aprenderse" el video** (todo son reglas generales de Colombia):
+
+| Cambio | Archivo | Motivo |
+|---|---|---|
+| Modo `colombia` acepta **carro `ABC123` y moto `ABC12D`** | `plate_utils.py` | las motos colombianas tienen otro formato |
+| Corrección por plantilla (`LLLNNN` / `LLLNNL`) | `plate_utils.py` | misma idea `8→B`, `O→0`, pero según carro o moto |
+| OCR une **todas las líneas grandes** y descarta las pequeñas | `ocr.py` | placas en 2 líneas o partidas; ignora "BOGOTÁ D.C." |
+| Detector **colombiano** (YOLOv8n, Rotsen2) | `config.yaml` | el genérico ponía la caja sobre la luz trasera de las motos |
+
+```
+ Moto WRG-22H, segundo 85:
+   detector genérico  → caja sobre la LUZ TRASERA (0.41)   → OCR no lee nada
+   detector colombia  → caja sobre la PLACA       (0.77)   → OCR "VR6-22H" → corrección moto → VRG22H
+```
+
+Comparación de detectores en el video de Bogotá (974 frames):
+
+| | genérico | colombia |
+|---|---|---|
+| frames con placa | 432 | 483 |
+| velocidad | 32 ms/frame | 26 ms/frame |
+
+Limitación: el video es una grabación de pantalla comprimida; muchas placas tienen pocos
+píxeles y el OCR confunde letras (`W→V`, `D→O`). La votación (paso 5) y un video de mejor
+calidad ayudarán.
+
+---
+
 ## 7. Comandos
 
 ```powershell

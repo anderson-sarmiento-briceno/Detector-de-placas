@@ -13,6 +13,21 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+EXTENSIONES_VIDEO = {".mp4", ".avi", ".mov", ".mkv", ".m4v", ".wmv", ".webm"}
+
+
+def buscar_videos(ruta: str | Path) -> list[Path]:
+    """Si `ruta` es un archivo, lo devuelve; si es una carpeta, todos sus videos (por nombre)."""
+    ruta = Path(ruta)
+    if ruta.is_file():
+        return [ruta]
+    if ruta.is_dir():
+        videos = sorted(p for p in ruta.iterdir() if p.suffix.lower() in EXTENSIONES_VIDEO)
+        if not videos:
+            raise FileNotFoundError(f"No hay videos ({', '.join(sorted(EXTENSIONES_VIDEO))}) en: {ruta}")
+        return videos
+    raise FileNotFoundError(f"No existe el video ni la carpeta: {ruta}")
+
 
 @dataclass
 class Frame:

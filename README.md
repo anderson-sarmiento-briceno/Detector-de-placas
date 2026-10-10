@@ -61,8 +61,9 @@ python -m venv .venv
 # Dependencias
 pip install -r requirements.txt
 
-# Descargar el modelo detector de placas (≈5 MB)
-python -m scripts.descargar_modelo
+# Descargar los detectores de placas (≈6 MB cada uno)
+python -m scripts.descargar_modelo --modelo colombia   # placas colombianas (por defecto en config.yaml)
+python -m scripts.descargar_modelo                     # genérico, placas de otros países
 ```
 
 > Los modelos de EasyOCR (≈95 MB) se descargan automáticamente la primera vez que se ejecuta el programa.
@@ -123,27 +124,28 @@ python -m pytest tests
 Todos los parámetros se ajustan aquí, sin tocar código:
 
 ```yaml
-video: data/videos/prueba_1.mp4
-formato_placa: generico          # generico | colombia
+video: data/videos/moto_bogota.mp4
+formato_placa: colombia          # generico | colombia
 procesar_cada_n_frames: 2        # analiza 1 de cada N frames
 confianza_minima_deteccion: 0.4  # umbral de YOLO (0 a 1)
 alto_minimo_caja_px: 15          # ignora placas demasiado pequeñas
 margen_recorte: 0.1              # margen extra al recortar la placa
 alto_recorte_ocr_px: 100         # altura del recorte antes del OCR
+proporcion_alto_linea_ocr: 0.6   # ignora textos pequeños (municipio)
 ocr_usar_gpu: false
 votos_minimos_para_confirmar: 3  # lecturas iguales necesarias para confirmar
 mostrar_ventana: true
 guardar_video_salida: true
 ruta_bd: data/placas.db
 ruta_log: outputs/lecturas.csv
-modelo_detector: models/detector_placas.pt
+modelo_detector: models/detector_colombia.pt   # otros países: models/detector_placas.pt
 ```
 
 ### Formatos de placa
 
 | Modo | Regla | Corrección por posición |
 |---|---|---|
-| `colombia` | `^[A-Z]{3}[0-9]{3}$` (ej. `ABC123`) | ✅ letras: `0→O 1→I 5→S 8→B 2→Z 6→G 4→A` · números: `O/D/Q→0 I/L→1 S→5 B→8 Z→2 G→6 A→4` |
+| `colombia` | carro `^[A-Z]{3}[0-9]{3}$` (ej. `ABC123`) · moto `^[A-Z]{3}[0-9]{2}[A-Z]$` (ej. `ABC12D`) | ✅ letras: `0→O 1→I 5→S 8→B 2→Z 6→G 4→A` · números: `O/D/Q→0 I/L→1 S→5 B→8 Z→2 G→6 A→4` |
 | `generico` | 5 a 8 caracteres alfanuméricos | ❌ |
 
 ---
@@ -212,7 +214,8 @@ lector_placas/
 
 | Modelo | Uso | Tamaño | Origen |
 |---|---|---|---|
-| YOLOv11n – license plates | detección de placas | 5,2 MB | [morsetechlab/yolov11-license-plate-detection](https://huggingface.co/morsetechlab/yolov11-license-plate-detection) |
+| YOLOv8n – placas Colombia | detección de placas colombianas (carros y motos) | 6,2 MB | [Rotsen2/detector-placas-colombia](https://huggingface.co/Rotsen2/detector-placas-colombia) |
+| YOLOv11n – license plates | detección de placas de otros países | 5,2 MB | [morsetechlab/yolov11-license-plate-detection](https://huggingface.co/morsetechlab/yolov11-license-plate-detection) |
 | CRAFT | localización de texto (EasyOCR) | 79 MB | [EasyOCR](https://github.com/JaidedAI/EasyOCR) |
 | english_g2 | reconocimiento de caracteres (EasyOCR) | 14 MB | [EasyOCR](https://github.com/JaidedAI/EasyOCR) |
 

@@ -15,11 +15,22 @@ def test_normalizar_quita_guiones_y_espacios():
     ("0BC12O", "OBC120"),   # 0→O en letra, O→0 en número
     ("5GA1B4", "SGA184"),
 ])
-def test_colombia_validas(crudo, esperado):
+def test_colombia_carro(crudo, esperado):
     assert validar_placa(crudo, "colombia") == esperado
 
 
-@pytest.mark.parametrize("crudo", ["ABC12", "ABC1234", "ABC12F", "", "BOGOTA"])
+@pytest.mark.parametrize("crudo, esperado", [
+    ("ABC12D", "ABC12D"),   # moto tal cual
+    ("abc 12d", "ABC12D"),
+    ("WRG-22H", "WRG22H"),
+    ("W8G2ZH", "WBG22H"),   # 8→B en letra, Z→2 en número
+    ("ABCI2K", "ABC12K"),   # I→1 en número; K no es número → plantilla moto
+])
+def test_colombia_moto(crudo, esperado):
+    assert validar_placa(crudo, "colombia") == esperado
+
+
+@pytest.mark.parametrize("crudo", ["ABC12", "ABC1234", "1234AB","", "BOGOTA", "VBC75", "12ABCD"])
 def test_colombia_invalidas(crudo):
     assert validar_placa(crudo, "colombia") is None
 
