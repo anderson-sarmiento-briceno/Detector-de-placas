@@ -1,7 +1,7 @@
 # Cómo funciona el lector de placas (explicación paso a paso)
 
 > Documento para ir entendiendo el código. Se actualiza a medida que avanzamos.
-> Estado: **pasos 1–4 hechos** (video → detección → OCR → validación). Falta paso 5 (votación, BD, alertas).
+> Estado: **Fase 1 completa** (video → detección + seguimiento → OCR → validación → votación → BD → alertas).
 
 ---
 
@@ -44,14 +44,18 @@ lector_placas/
 │   ├── video_source.py      ← entrega frames del video
 │   ├── detector.py          ← YOLO: encuentra placas (cajas)
 │   ├── ocr.py               ← recorta, mejora la imagen y lee el texto
-│   └── plate_utils.py       ← limpia y valida el texto (genérico / Colombia)
+│   ├── plate_utils.py       ← limpia y valida el texto (genérico / Colombia)
+│   ├── tracker.py           ← votación: junta lecturas del mismo vehículo → 1 placa
+│   ├── database.py          ← SQLite: placas de interés + historial
+│   └── alerts.py            ← aviso cuando una placa está en la lista
 ├── scripts/
-│   └── descargar_modelo.py  ← baja el modelo YOLO desde Hugging Face
-├── tests/
-│   └── test_plate_utils.py  ← pruebas automáticas de plate_utils
-├── models/detector_placas.pt
-├── data/videos/prueba_1.mp4
-└── outputs/video_procesado.mp4
+│   ├── descargar_modelo.py  ← baja los modelos YOLO desde Hugging Face
+│   └── cargar_placas.py     ← carga placas de interés desde un CSV
+├── tests/                   ← pruebas automáticas (42)
+├── models/                  ← detector_colombia.pt, detector_placas.pt
+├── data/videos/             ← los videos a procesar (todos los de la carpeta)
+├── data/placas.db           ← la base de datos
+└── outputs/                 ← <video>_procesado.mp4 + lecturas.csv
 ```
 
 ¿Por qué separado en tantos archivos? Para poder **cambiar una pieza sin tocar las demás**:
@@ -156,25 +160,78 @@ YOLO **no lee** la placa: solo dice "aquí hay un rectángulo que parece una pla
 ### 3.6 `main.py` — el director
 
 ```
- cargar config ─► cargar YOLO ─► cargar EasyOCR ─► abrir video ─► abrir video de salida
-                                                        │
-              ┌─────────────────────────────────────────┘
+ cargar config ─► buscar videos en data/videos ─► cargar YOLO + EasyOCR + BD ─► por cada video:
+                                                                                     │
+              ┌──────────────────────────────────────────────────────────────────────┘
               ▼
-   ┌──► siguiente frame ──(no hay más)──────────────────────────────► cerrar todo ─► imprimir resumen
+   ┌──► siguiente frame ──(no hay más)──► guardar en BD 1 fila por vehículo ─► imprimir resumen
    │          │
    │          ▼
-   │    detectar placas ──► por cada caja: leer OCR ──► validar
-   │                                                     ├ válida   → log + caja VERDE + contar
-   │                                                     └ inválida → caja AMARILLA "? texto"
+   │    detectar + seguir placas (cada caja trae un track_id = "vehículo n.º 142")
    │          │
    │          ▼
+   │    por cada caja: OCR ──► validar ──► votación del vehículo ──► ¿placa nueva o cambió?
+   │                                                                   └ sí → ¿está en la BD? → 🚨 alerta
+   │          │                                                          + fila en lecturas.csv
+   │          ▼
+   │    dibujar: VERDE = confirmada · ROJO = alerta · AMARILLO = aún sin confirmar
    │    escribir frame al video de salida, mostrar ventana
    │          │
    └──────────┴── (tecla q = salir, espacio = pausa)
 ```
 
-- `Counter` (de la librería estándar) cuenta cuántas veces apareció cada texto → el resumen final.
 - Los modelos se cargan **una sola vez** al inicio (cargar es lento; usar es rápido).
+- La clase `Pipeline` guarda las piezas (detector, OCR, BD) y `procesar_video()` recorre un video.
+
+### 3.7 `tracker.py` — votación: de 30 lecturas imperfectas a 1 placa
+
+**Paso A — seguimiento (en `detector.py`).** YOLO no solo detecta: con `model.track()` y el
+algoritmo **ByteTrack** le pone a cada caja un número (`track_id`) que se mantiene mientras el
+vehículo sigue en pantalla. Así sabemos que las lecturas de los frames 846, 858, 864… son del
+**mismo** vehículo.
+
+**Paso B — votación por carácter.** El OCR rara vez lee igual la placa entera, pero cada
+posición sí suele acertar la mayoría de las veces:
+
+```
+ Lecturas del vehículo 103 (moto):
+     I E O 8 1 E
+     D E O 8 1 E
+     O E O 8 1 E
+     D E O 8 1 E
+     N E O 8 1 E
+     D Z O 8 1 E
+     ─────────────
+ voto: D E O 8 1 E   ← en cada columna gana la letra más repetida
+```
+
+- Antes de votar se agrupan las lecturas por **patrón** (`LLLNNN` carro / `LLLNNL` moto) y se usa
+  el patrón más común, para no mezclar columnas.
+- Empates → gana el carácter con más confianza del OCR sumada.
+- Se confirma cuando el vehículo tiene `votos_minimos_para_confirmar` (3) lecturas válidas.
+- Si con más lecturas el voto cambia, la placa se **corrige** (en consola sale `🔁 corregida`).
+
+**Paso C — fusión.** A veces el seguimiento pierde el vehículo (lo tapa otro, sale del cuadro)
+y al volver le da un ID nuevo. Si el nuevo confirma una placa que difiere en **máximo 1 carácter**
+de un vehículo visto hace menos de `segundos_fusion_vehiculos` (10 s), se unen:
+
+```
+ vehículo 103: DEO81E (36,0–36,3 s) ┐
+ vehículo 106: IEO81E (39,6–41,1 s) ├─► un solo vehículo, 17 lecturas → OEO81E
+ vehículo 117: TEO81E (46,4–47,2 s) ┘
+```
+
+### 3.8 `database.py`, `alerts.py` y `scripts/cargar_placas.py`
+
+- **BD SQLite** (`data/placas.db`, un solo archivo, no necesita servidor):
+  - `placas_interes`: la lista de placas a vigilar (`placa`, `motivo`).
+  - `detecciones`: historial — **una fila por vehículo** con su placa final.
+- `cargar_placas.py` lee un CSV `placa,motivo`, normaliza (`abc-123` → `ABC123`) y lo guarda.
+- Cada vez que un vehículo confirma (o corrige) su placa, se busca en `placas_interes` por
+  **igualdad exacta**. Si está → `alertar()`: mensaje `🚨 ALERTA` en consola, caja **roja** y
+  pitido opcional (`sonido_alerta: true`). Cada vehículo alerta una sola vez.
+- `outputs/lecturas.csv`: **todas** las lecturas válidas (frame, segundo, vehículo, texto leído,
+  placa confirmada en ese momento, si coincide). Sirve para revisar qué pasó.
 
 ---
 
@@ -223,34 +280,33 @@ Tu instalación es la versión **solo CPU** (no se detectó tarjeta NVIDIA), por
 | — | Quitar `opencv-python-headless` | EasyOCR lo instaló y choca con `opencv-python` (rompía la ventana) |
 | 3 | `detector.py` + descarga del YOLO | modelo nano = liviano, pensado para correr luego en un dispositivo pequeño |
 | 4 | `ocr.py` + `plate_utils.py` + tests | EasyOCR es el más simple para arrancar; la validación tiene tests porque son reglas exactas |
+| — | Ajuste a Colombia (sección 6.1) | detector colombiano, motos, OCR multilínea |
+| — | Carpeta de videos | `video: data/videos` procesa todos los videos sin importar el nombre |
+| 5 | `tracker.py`, `database.py`, `alerts.py`, `cargar_placas.py` | seguimiento + voto por carácter (el voto por texto exacto no sirve: el OCR casi nunca repite la placa entera) |
 
 ---
 
-## 6. Resultado actual y lo que falta
+## 6. Resultados
 
-**Funciona:** el detector encuentra todas las placas del video y el OCR las lee razonablemente.
-
-**Problema visible:** cada placa se imprime en cada frame (≈ 65 textos distintos para ~6 placas
-reales), con variaciones del OCR:
+**Antes de la votación** (video de Taiwán): cada placa se imprimía en cada frame
+(≈ 65 textos distintos para ~6 placas reales):
 
 ```
  Placa real: AJE·1610
  Lecturas:   AJEI610 ×24   AJEL610 ×8   AJE1610 ×8   AJEI61C ×3   MAJEI610 ×2 …
-                 ▲
-                 el "1" lo confunde con I / L
 ```
 
-**Próximo paso (5) — votación temporal:**
+**Con la votación** (video `moto_bogota_2.mp4`, 2:08, con `CTB816` y `KAV637` cargadas en una BD
+de prueba):
 
-```
- frame 0: AJEL610 ┐
- frame 2: AJEI610 │   misma placa (caja en la misma zona   ┌──────────────────────┐
- frame 4: AJE1610 ├── / mismo ID de seguimiento)  ───────► │ votos: AJEI610 ×5 …  │──► confirmar UNA vez
- frame 6: AJEI610 │                                        │ ≥ 3 votos → confirmar│    → consultar BD → ¿alerta?
- frame 8: AJEI610 ┘                                        └──────────────────────┘
-```
+| | Sin votación | Con votación |
+|---|---|---|
+| Resultado | 64 textos distintos | **6 vehículos confirmados** |
+| Moto `?EO81E` | 15 variantes | 1 vehículo, 17 lecturas |
+| Alertas | — | 🚨 `KAV637`, 🚨 `CTB816` |
 
-Luego: base de datos SQLite, alertas (caja roja + consola) y log CSV.
+Lo que sigue limitando: la calidad del video (grabación de pantalla comprimida). Placas como
+`HCV948` siguen dudosas en 1 letra (`H/R`, `V/Y/K`) porque el OCR reparte los votos casi parejo.
 
 ---
 
@@ -287,10 +343,11 @@ calidad ayudarán.
 ## 7. Comandos
 
 ```powershell
-.venv\Scripts\python -m src.main                     # correr (con ventana)
-.venv\Scripts\python -m src.main --video otra.mp4    # otro video
-.venv\Scripts\python -m pytest tests                 # pruebas
-.venv\Scripts\python -m scripts.descargar_modelo     # re-descargar el YOLO (--variante s|m|l|x para más grande)
+.venv\Scripts\python -m src.main                         # procesar todos los videos de data/videos
+.venv\Scripts\python -m src.main --video ruta\video.mp4  # un solo video
+.venv\Scripts\python -m scripts.cargar_placas placas.csv # cargar placas de interés (CSV: placa,motivo)
+.venv\Scripts\python -m pytest tests                     # pruebas
+.venv\Scripts\python -m scripts.descargar_modelo --modelo colombia   # re-descargar detector
 ```
 
 ## 8. Glosario rápido
@@ -304,3 +361,7 @@ calidad ayudarán.
 - **Regex**: patrón de texto, p. ej. `^[A-Z]{3}[0-9]{3}$` = 3 letras y 3 números.
 - **FPS**: frames por segundo que el programa logra procesar.
 - **Votación temporal**: decidir el texto de una placa juntando las lecturas de varios frames.
+- **Tracking / seguimiento**: reconocer que una caja en el frame 10 y otra en el frame 12 son el mismo objeto.
+- **ByteTrack**: el algoritmo de seguimiento que usa YOLO por defecto.
+- **track_id**: número que el seguimiento le asigna a cada vehículo.
+- **SQLite**: base de datos en un solo archivo, incluida en Python.

@@ -11,7 +11,7 @@ Sistema de reconocimiento automático de placas vehiculares (ALPR) pensado para 
 - 🎯 **Detección de placas** con YOLOv11 nano (liviano, pensado para dispositivos pequeños).
 - 🔤 **Lectura de caracteres (OCR)** con EasyOCR, con preprocesado (escala de grises, escalado y CLAHE).
 - 🇨🇴 **Validación de formato colombiano** (`ABC123`) con corrección automática de confusiones típicas del OCR según la posición (`8→B`, `O→0`, …), o modo **genérico** para placas de otros países.
-- 🗳️ **Votación temporal**: una placa se confirma solo cuando se lee igual en varios frames, lo que reduce los falsos positivos.
+- 🗳️ **Votación temporal**: cada vehículo se sigue entre frames y sus lecturas se votan carácter por carácter; aunque el OCR nunca lea la placa completa igual, se confirma una sola placa.
 - 🗄️ **Base de datos SQLite** de placas de interés.
 - 🚨 **Alertas** en consola y en el video (caja roja) cuando una placa coincide.
 - 📄 **Registro CSV** de todas las lecturas y **video de salida** anotado.
@@ -34,7 +34,7 @@ Sistema de reconocimiento automático de placas vehiculares (ALPR) pensado para 
 2. **Detector**: YOLO encuentra los rectángulos donde hay placas.
 3. **OCR**: recorta cada placa, mejora la imagen y lee el texto.
 4. **Validación**: normaliza el texto (`abc-123` → `ABC123`) y verifica el formato.
-5. **Votación temporal**: agrupa las lecturas de la misma placa en frames seguidos y confirma la más votada.
+5. **Votación temporal**: el seguimiento de YOLO (ByteTrack) identifica cada vehículo entre frames; sus lecturas se votan **carácter por carácter** y se confirma una sola placa.
 6. **Consulta**: busca la placa confirmada en la base de datos.
 7. **Alerta**: si coincide, avisa en consola, la marca en rojo en el video y registra el evento.
 
@@ -72,13 +72,26 @@ python -m scripts.descargar_modelo                     # genérico, placas de ot
 
 ## ▶️ Uso
 
-### 1. Procesar un video
+### 1. Procesar videos
+
+Copiar los videos (`.mp4`, `.avi`, `.mov`, `.mkv`…) en `data/videos/` y ejecutar:
 
 ```powershell
-python -m src.main --video data/videos/prueba_1.mp4
+python -m src.main                                  # todos los videos de data/videos
+python -m src.main --video data/videos/ruta.mp4     # un solo video
 ```
 
-Si no se pasa `--video`, se usa el definido en `config.yaml`.
+En consola sale cada placa confirmada y, al final, un resumen por video:
+
+```
+✅ Placa confirmada CTB816  (vehículo 142, 3 lecturas, 64.5s)
+🔁 Placa corregida HCK948 → HCV948  (vehículo 205, 14 lecturas)
+
+=== Placas confirmadas en moto_bogota_2.mp4: 6 ===
+  OEO81E     36.0s    17 lecturas
+  KAV637     44.3s    11 lecturas  🚨 ALERTA
+  CTB816     64.3s    25 lecturas  🚨 ALERTA
+```
 
 | Tecla | Acción |
 |---|---|
@@ -106,10 +119,14 @@ python -m scripts.cargar_placas placas.csv
 Al volver a procesar el video, cada placa de la lista que aparezca genera:
 
 ```
-🚨 ALERTA  frame 102 (3.4s): ABC123 – Vehículo reportado
+WARNING src.alerts: 🚨 ALERTA  ABC123  en video.mp4 (64.5s)  motivo: Vehículo reportado
 ```
 
-y se dibuja con una **caja roja** en la ventana y en el video de salida.
+y se dibuja con una **caja roja** en la ventana y en el video de salida (pitido opcional con
+`sonido_alerta: true`). Cada vehículo alerta una sola vez.
+
+> Para probar: procesar un video, tomar 2-3 placas que salgan en el resumen, cargarlas con
+> `cargar_placas.py` y volver a procesarlo.
 
 ### 4. Correr las pruebas
 
@@ -124,7 +141,7 @@ python -m pytest tests
 Todos los parámetros se ajustan aquí, sin tocar código:
 
 ```yaml
-video: data/videos/moto_bogota.mp4
+video: data/videos                # carpeta (todos sus videos) o un archivo
 formato_placa: colombia          # generico | colombia
 procesar_cada_n_frames: 2        # analiza 1 de cada N frames
 confianza_minima_deteccion: 0.4  # umbral de YOLO (0 a 1)
@@ -133,7 +150,10 @@ margen_recorte: 0.1              # margen extra al recortar la placa
 alto_recorte_ocr_px: 100         # altura del recorte antes del OCR
 proporcion_alto_linea_ocr: 0.6   # ignora textos pequeños (municipio)
 ocr_usar_gpu: false
-votos_minimos_para_confirmar: 3  # lecturas iguales necesarias para confirmar
+votos_minimos_para_confirmar: 3  # lecturas del mismo vehículo antes de confirmar su placa
+tracker: bytetrack.yaml          # seguimiento de YOLO
+segundos_fusion_vehiculos: 10    # placa casi igual que reaparece antes = mismo vehículo
+sonido_alerta: false
 mostrar_ventana: true
 guardar_video_salida: true
 ruta_bd: data/placas.db
@@ -154,9 +174,9 @@ modelo_detector: models/detector_colombia.pt   # otros países: models/detector_
 
 | Archivo | Contenido |
 |---|---|
-| `outputs/lecturas.csv` | segundo del video, número de frame, placa, confianza, coincidencia (0/1) |
-| `outputs/video_procesado.mp4` | video con las placas enmarcadas y su texto (rojo = alerta) |
-| `data/placas.db` | base SQLite con las placas de interés y el historial de detecciones |
+| `outputs/lecturas.csv` | todas las lecturas válidas: video, frame, segundo, vehículo (track_id), texto leído, confianza OCR, placa confirmada, coincidencia (0/1) |
+| `outputs/<video>_procesado.mp4` | video con las placas enmarcadas (verde = confirmada, rojo = alerta, amarillo = sin confirmar) |
+| `data/placas.db` | base SQLite con las placas de interés y el historial (una fila por vehículo) |
 
 ### Esquema de la base de datos
 
@@ -199,8 +219,7 @@ lector_placas/
 ├── scripts/
 │   ├── descargar_modelo.py  # baja el detector YOLO desde Hugging Face
 │   └── cargar_placas.py     # carga placas de interés desde CSV
-├── tests/
-│   └── test_plate_utils.py
+├── tests/                   # pruebas: plate_utils, ocr, tracker, database
 ├── docs/
 │   └── EXPLICACION.md       # explicación detallada del código, con diagramas
 ├── data/                    # videos y BD (no se suben a git)

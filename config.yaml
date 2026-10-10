@@ -7,7 +7,10 @@ margen_recorte: 0.1            # margen extra alrededor de la placa (10 %)
 alto_recorte_ocr_px: 100       # altura a la que se escala el recorte antes del OCR
 proporcion_alto_linea_ocr: 0.6 # textos más bajos que 60 % del más alto se ignoran (municipio)
 ocr_usar_gpu: false
-votos_minimos_para_confirmar: 3
+votos_minimos_para_confirmar: 3  # lecturas del mismo vehículo antes de confirmar su placa
+tracker: bytetrack.yaml        # seguimiento de YOLO (bytetrack.yaml | botsort.yaml)
+segundos_fusion_vehiculos: 10  # placa casi igual (1 carácter) que reaparece antes de esto = mismo vehículo
+sonido_alerta: false           # pitido al detectar una placa de interés (solo Windows)
 mostrar_ventana: true
 guardar_video_salida: true
 ruta_bd: data/placas.db
