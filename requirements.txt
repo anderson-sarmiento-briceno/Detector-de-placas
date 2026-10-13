@@ -1,7 +1,13 @@
 opencv-python>=4.9
 ultralytics>=8.3
 lap>=0.5.12          # requerido por el tracking de YOLO
-easyocr>=1.7
+fast-plate-ocr[onnx]>=1.1   # OCR colombiano liviano (motor_ocr: onnx)
+easyocr>=1.7         # solo para motor_ocr: easyocr
 huggingface_hub>=0.24
 pyyaml>=6.0
 pytest>=8.0
+python-dotenv>=1.0
+# Nota: fast-plate-ocr instala opencv-python-headless, que choca con opencv-python
+# (quita la ventana de video). Después de instalar, ejecutar:
+#   pip uninstall -y opencv-python-headless opencv-python && pip install --no-deps opencv-python
+# Torch con GPU (NVIDIA): instalar antes desde https://download.pytorch.org/whl/cu130

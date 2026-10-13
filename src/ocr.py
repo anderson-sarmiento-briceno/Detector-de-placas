@@ -1,8 +1,14 @@
-"""Recorte, preprocesado y OCR de la placa."""
+"""Recorte, preprocesado y OCR de la placa.
+
+Dos motores, elegidos con `motor_ocr` en config.yaml:
+- onnx:    OCR propio entrenado con placas colombianas (fast-plate-ocr, ~3 MB). Es el que
+           se llevará al celular.
+- easyocr: OCR genérico de texto (el original de la fase 1). Mucho más pesado y menos preciso.
+"""
 import logging
+from typing import Any, Protocol
 
 import cv2
-import easyocr
 import numpy as np
 
 from src.detector import Deteccion
@@ -10,6 +16,25 @@ from src.detector import Deteccion
 logger = logging.getLogger(__name__)
 
 CARACTERES_PERMITIDOS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+MOTOR_ONNX = "onnx"
+MOTOR_EASYOCR = "easyocr"
+
+
+class Lector(Protocol):
+    def leer(self, imagen: np.ndarray, d: Deteccion) -> tuple[str, float]:
+        """Devuelve (texto crudo, confianza) de la placa detectada en `d`."""
+        ...
+
+
+def crear_lector(config: dict[str, Any]) -> Lector:
+    """Crea el lector OCR indicado por `motor_ocr` en la configuración."""
+    motor = config.get("motor_ocr", MOTOR_ONNX)
+    if motor == MOTOR_ONNX:
+        return LectorONNX(config["modelo_ocr"], config["config_modelo_ocr"], config["margen_recorte"])
+    if motor == MOTOR_EASYOCR:
+        return LectorOCR(config["ocr_usar_gpu"], config["margen_recorte"],
+                         config["alto_recorte_ocr_px"], config["proporcion_alto_linea_ocr"])
+    raise ValueError(f"motor_ocr desconocido: {motor!r} (usar '{MOTOR_ONNX}' o '{MOTOR_EASYOCR}')")
 
 
 def recortar(imagen: np.ndarray, d: Deteccion, margen: float) -> np.ndarray:
@@ -31,9 +56,41 @@ def preprocesar(recorte: np.ndarray, alto_objetivo: int) -> np.ndarray:
     return clahe.apply(gris)
 
 
+class LectorONNX:
+    """OCR de placa en un solo paso: el modelo recibe el recorte y devuelve los caracteres.
+
+    Lee placas de una y de dos líneas (motos) sin lógica extra, porque así fue entrenado.
+    """
+
+    def __init__(self, ruta_modelo: str, ruta_config: str, margen: float) -> None:
+        from fast_plate_ocr import LicensePlateRecognizer
+
+        logger.info("Cargando OCR %s", ruta_modelo)
+        self.reconocedor = LicensePlateRecognizer(onnx_model_path=ruta_modelo,
+                                                  plate_config_path=ruta_config, device="cpu")
+        self.rgb = self.reconocedor.config.image_color_mode == "rgb"
+        self.margen = margen
+
+    def leer(self, imagen: np.ndarray, d: Deteccion) -> tuple[str, float]:
+        """Devuelve (texto, confianza); la confianza es la del carácter menos seguro."""
+        recorte = recortar(imagen, d, self.margen)
+        if recorte.size == 0:
+            return "", 0.0
+        recorte = cv2.cvtColor(recorte, cv2.COLOR_BGR2RGB if self.rgb else cv2.COLOR_BGR2GRAY)
+        prediccion = self.reconocedor.run_one(recorte, return_confidence=True)
+        texto = prediccion.plate
+        if not texto:
+            return "", 0.0
+        return texto, float(np.min(prediccion.char_probs[:len(texto)]))
+
+
 class LectorOCR:
+    """Lector con EasyOCR (motor_ocr: easyocr)."""
+
     def __init__(self, usar_gpu: bool, margen: float, alto_objetivo: int,
                  proporcion_alto_linea: float) -> None:
+        import easyocr
+
         logger.info("Cargando EasyOCR (la primera vez descarga sus modelos)...")
         self.reader = easyocr.Reader(["en"], gpu=usar_gpu, verbose=False)
         self.margen = margen

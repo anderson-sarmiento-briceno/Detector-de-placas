@@ -1,0 +1,4 @@
+# Dependencias extra para entrenar y exportar modelos (no necesarias para correr el lector)
+-r requirements.txt
+fast-plate-ocr[train,onnx]>=1.1   # trae keras, tensorflow (exportar), coremltools (iOS)
+# Entrenar el OCR con la GPU: definir KERAS_BACKEND=torch

@@ -6,10 +6,20 @@ __pycache__/
 
 # Datos sensibles y pesados (no subir)
 data/videos/
+data/datasets/
 *.mp4
 *.avi
 *.mov
 *.db
 models/*.pt
 models/*.onnx
+models/ocr_base/
+models/ocr_entrenados/
+models/detector_entrenados/
+*.keras
+tensorboard_logs/
+*.log
 outputs/
+
+# Claves (API keys)
+.env

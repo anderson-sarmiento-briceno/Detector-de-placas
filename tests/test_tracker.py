@@ -71,6 +71,42 @@ def test_fusiona_vehiculo_que_el_seguimiento_perdio():
     assert len(v.vehiculo_de(10).lecturas) == 6
 
 
+def test_fusiona_cuando_la_placa_se_corrige_despues():
+    # Caso real: el ID nuevo se confirma primero con lecturas lejanas y erradas
+    # (WAW450, nada parecido) y solo después se corrige a la placa ya vista.
+    v = nueva_votacion(2, segundos_fusion=10)
+    for i in range(3):
+        v.agregar(88, "KAV637", 0.9, i, 26.0 + i)          # visto hasta 28 s
+    for i in range(2):
+        v.agregar(104, "WAW450", 0.5, 100 + i, 37.0)
+    assert len(v.confirmados()) == 2                        # aún no se parecen
+    for i in range(3):
+        v.agregar(104, "KAV637", 0.9, 110 + i, 38.0 + i)
+    assert [x.placa_confirmada for x in v.confirmados()] == ["KAV637"]
+    assert v.vehiculo_de(104) is v.vehiculo_de(88)
+    assert v.vehiculo_de(88).primer_segundo == 26.0
+
+
+def test_fusiona_vehiculos_que_se_solapan_en_el_tiempo():
+    v = nueva_votacion(2, segundos_fusion=10)
+    for i in range(2):
+        v.agregar(190, "PUM731", 0.9, i, 113.7 + i)        # 113.7 - 114.7 s
+        v.agregar(193, "PUM731", 0.9, 10 + i, 114.0 + i)   # 114.0 - 115.0 s
+    assert len(v.confirmados()) == 1
+    assert v.confirmados()[0].primer_segundo == 113.7
+
+
+def test_placa_identica_se_fusiona_con_ventana_mas_larga():
+    v = VotacionPlacas(2, validar_colombia, segundos_fusion=10, segundos_fusion_misma_placa=60)
+    for i in range(2):
+        v.agregar(93, "OEQ81E", 0.9, i, 28.5)
+    for i in range(2):
+        v.agregar(115, "OEQ81E", 0.9, 100 + i, 40.1)      # 11.6 s después, idéntica
+    for i in range(2):
+        v.agregar(120, "OEQ81F", 0.9, 200 + i, 60.0)      # casi igual pero 20 s después
+    assert [x.placa_confirmada for x in v.confirmados()] == ["OEQ81E", "OEQ81F"]
+
+
 def test_no_fusiona_si_paso_mucho_tiempo():
     v = nueva_votacion(2, segundos_fusion=3)
     for i in range(2):

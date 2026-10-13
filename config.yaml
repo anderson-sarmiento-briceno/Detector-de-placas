@@ -4,15 +4,21 @@ procesar_cada_n_frames: 2
 confianza_minima_deteccion: 0.4
 alto_minimo_caja_px: 15        # cajas más bajas no se intentan leer
 margen_recorte: 0.1            # margen extra alrededor de la placa (10 %)
+motor_ocr: onnx                # onnx (OCR propio colombiano, liviano) | easyocr (genérico)
+modelo_ocr: models/ocr_colombia.onnx
+config_modelo_ocr: models/ocr_colombia_plate_config.yaml
+confianza_minima_ocr: 0.5      # lecturas con menos confianza no votan (con easyocr usar 0)
+# Solo para motor_ocr: easyocr
 alto_recorte_ocr_px: 100       # altura a la que se escala el recorte antes del OCR
 proporcion_alto_linea_ocr: 0.6 # textos más bajos que 60 % del más alto se ignoran (municipio)
 ocr_usar_gpu: false
 votos_minimos_para_confirmar: 3  # lecturas del mismo vehículo antes de confirmar su placa
 tracker: bytetrack.yaml        # seguimiento de YOLO (bytetrack.yaml | botsort.yaml)
 segundos_fusion_vehiculos: 10  # placa casi igual (1 carácter) que reaparece antes de esto = mismo vehículo
+segundos_fusion_misma_placa: 60  # placa idéntica que reaparece antes de esto = mismo vehículo
 sonido_alerta: false           # pitido al detectar una placa de interés (solo Windows)
 mostrar_ventana: true
 guardar_video_salida: true
 ruta_bd: data/placas.db
 ruta_log: outputs/lecturas.csv
-modelo_detector: models/detector_colombia.pt   # placas extranjeras: models/detector_placas.pt
+modelo_detector: models/detector_colombia_v1.pt   # anterior: models/detector_colombia.pt | placas extranjeras: models/detector_placas.pt

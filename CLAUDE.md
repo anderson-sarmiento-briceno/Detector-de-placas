@@ -2,7 +2,9 @@
 
 El contexto completo del proyecto está en [contexto.md](contexto.md). Leerlo antes de cualquier cambio.
 
-- Video de prueba actual: `data/videos/moto_bogota.mp4` (Bogotá, ~2:42, grabación de pantalla comprimida) → `formato_placa: colombia` + `models/detector_colombia.pt`.
+- Video de prueba actual: `data/videos/moto_bogota_2.mp4` (Bogotá, ~2:08, grabación de pantalla comprimida) → `formato_placa: colombia` + `models/detector_colombia_v1.pt` + OCR `models/ocr_colombia.onnx`.
+- `data/videos/18-24-05_completo.mp4` (17,6 min) contiene a moto_bogota_2 en sus primeros 2:10: ese tramo es solo de PRUEBA; para entrenar se usa desde 2:20.
+- Objetivo: app móvil (Android + iOS), cero gastos. Modelos entrenados por nosotros: detector (scripts/entrenar_detector.py) y OCR (fast-plate-ocr, scripts/exportar_ocr.py).
 - Video anterior: Pexels 4403833 (Taiwán, placas no colombianas) → `formato_placa: generico` + `models/detector_placas.pt`.
 - Modo `colombia` acepta carro `ABC123` y moto `ABC12D` (ampliación respecto a contexto.md, pedida por el usuario).
 - Los ajustes deben ser reglas generales de Colombia, nunca específicos de las placas de un video.

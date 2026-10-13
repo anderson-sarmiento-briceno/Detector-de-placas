@@ -14,7 +14,7 @@ from src.alerts import alertar
 from src.config import cargar_config
 from src.database import BaseDatos
 from src.detector import Deteccion, DetectorPlacas
-from src.ocr import LectorOCR
+from src.ocr import crear_lector
 from src.plate_utils import validar_placa
 from src.tracker import Vehiculo, VotacionPlacas
 from src.video_source import FuenteArchivo, buscar_videos
@@ -52,8 +52,7 @@ class Pipeline:
         self.log_csv = log_csv
         self.detector = DetectorPlacas(config["modelo_detector"], config["confianza_minima_deteccion"],
                                        config["alto_minimo_caja_px"], config["tracker"])
-        self.lector = LectorOCR(config["ocr_usar_gpu"], config["margen_recorte"],
-                                config["alto_recorte_ocr_px"], config["proporcion_alto_linea_ocr"])
+        self.lector = crear_lector(config)
         self.bd = BaseDatos(config["ruta_bd"])
         self.validar = partial(validar_placa, formato=config["formato_placa"])
 
@@ -61,7 +60,8 @@ class Pipeline:
         """Procesa un video. Devuelve (votación, track_ids con alerta, si el usuario pidió salir)."""
         config = self.config
         votacion = VotacionPlacas(config["votos_minimos_para_confirmar"], self.validar,
-                                  config["segundos_fusion_vehiculos"])
+                                  config["segundos_fusion_vehiculos"],
+                                  config.get("segundos_fusion_misma_placa"))
         con_alerta: set[int] = set()   # track_id (del vehículo) cuya placa actual está en la BD
         reportadas: dict[int, str] = {}  # última placa mostrada en consola por vehículo
         salir = False
@@ -80,7 +80,8 @@ class Pipeline:
                 procesados += 1
                 for d in self.detector.detectar(frame.imagen):
                     texto_crudo, conf_ocr = self.lector.leer(frame.imagen, d)
-                    placa = self.validar(texto_crudo)
+                    # Lecturas dudosas (placa lejana o algo que no es placa) no votan
+                    placa = self.validar(texto_crudo) if conf_ocr >= config["confianza_minima_ocr"] else None
                     if placa and d.track_id is not None:
                         vehiculo, cambio = votacion.agregar(d.track_id, placa, conf_ocr,
                                                             frame.numero, frame.segundo)
