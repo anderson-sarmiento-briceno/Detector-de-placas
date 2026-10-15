@@ -3,16 +3,44 @@
 Uso:
     python -m scripts.extraer_frames --video data/videos/x.mp4 --desde 140 --cada 0.5
     python -m scripts.extraer_frames --video ... --desde 0 --hasta 130 --destino data/datasets/detector_video/prueba
+    python -m scripts.extraer_frames --video data/videos/x_4k.mp4 --cada 1 --ancho 1920   # usa ffmpeg
 
 Los frames se guardan como <video>_<segundo>.jpg en --destino/images.
+Con --ancho se reduce la resolución (p. ej. 4K → 1080p, como la cámara del casco) y se
+usa ffmpeg, que decodifica con la GPU y es mucho más rápido que OpenCV con videos 4K.
 """
 import argparse
 import logging
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import cv2
 
 logger = logging.getLogger(__name__)
+
+
+def extraer_ffmpeg(video: Path, destino: Path, desde: float, hasta: float | None, cada: float,
+                   ancho: int) -> int:
+    """Extrae con ffmpeg (decodificación por hardware si existe) y reduce al ancho dado."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise FileNotFoundError("No se encontró ffmpeg (instalar: winget install Gyan.FFmpeg)")
+    carpeta = destino / "images"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        comando = [ffmpeg, "-hide_banner", "-loglevel", "error", "-hwaccel", "auto", "-ss", str(desde)]
+        if hasta is not None:
+            comando += ["-to", str(hasta)]
+        comando += ["-i", str(video), "-vf", f"fps=1/{cada},scale={ancho}:-2", "-q:v", "2",
+                    str(Path(tmp) / "%07d.jpg")]
+        subprocess.run(comando, check=True)
+        # ffmpeg numera desde 1: el frame i corresponde a desde + (i - 1) * cada segundos
+        frames = sorted(Path(tmp).glob("*.jpg"))
+        for i, ruta in enumerate(frames):
+            shutil.move(ruta, carpeta / f"{video.stem}_{desde + i * cada:07.1f}.jpg")
+    return len(frames)
 
 
 def extraer(video: Path, destino: Path, desde: float, hasta: float | None, cada: float) -> int:
@@ -48,8 +76,12 @@ def main() -> None:
     parser.add_argument("--desde", type=float, default=0.0, help="Segundo inicial")
     parser.add_argument("--hasta", type=float, help="Segundo final (por defecto, el final del video)")
     parser.add_argument("--cada", type=float, default=0.5, help="Segundos entre frames")
+    parser.add_argument("--ancho", type=int, help="Reducir a este ancho en píxeles (usa ffmpeg)")
     args = parser.parse_args()
-    n = extraer(args.video, args.destino, args.desde, args.hasta, args.cada)
+    if args.ancho:
+        n = extraer_ffmpeg(args.video, args.destino, args.desde, args.hasta, args.cada, args.ancho)
+    else:
+        n = extraer(args.video, args.destino, args.desde, args.hasta, args.cada)
     logger.info("%d frames de %s → %s", n, args.video, args.destino / "images")
 
 
