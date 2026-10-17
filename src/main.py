@@ -39,9 +39,19 @@ def parsear_argumentos() -> argparse.Namespace:
 
 
 def dibujar(imagen: np.ndarray, d: Deteccion, etiqueta: str, color: tuple[int, int, int]) -> None:
-    cv2.rectangle(imagen, (d.x1, d.y1), (d.x2, d.y2), color, 2)
-    cv2.putText(imagen, etiqueta, (d.x1, max(20, d.y1 - 8)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+    """Caja de la placa y, encima, la etiqueta sobre un fondo del mismo color.
+
+    El tamaño del texto es proporcional al ancho del frame, para que se lea igual en
+    videos 720p, 1080p o 4K (y al reducir el video de salida para compartirlo).
+    """
+    escala = imagen.shape[1] / 1600
+    grosor = max(2, round(escala * 2))
+    cv2.rectangle(imagen, (d.x1, d.y1), (d.x2, d.y2), color, grosor)
+    (ancho_txt, alto_txt), base = cv2.getTextSize(etiqueta, cv2.FONT_HERSHEY_SIMPLEX, escala, grosor)
+    y_base = max(alto_txt + base + 4, d.y1 - 6)
+    cv2.rectangle(imagen, (d.x1, y_base - alto_txt - base - 4), (d.x1 + ancho_txt + 8, y_base + 2), color, -1)
+    cv2.putText(imagen, etiqueta, (d.x1 + 4, y_base - base), cv2.FONT_HERSHEY_SIMPLEX, escala,
+                (0, 0, 0), grosor)
 
 
 class Pipeline:
@@ -67,14 +77,19 @@ class Pipeline:
         salir = False
         procesados = 0
         escritor: cv2.VideoWriter | None = None
-        ruta_salida = CARPETA_SALIDA / f"{ruta_video.stem}_procesado.mp4"
+        # mp4v = archivo liviano; MJPG (.avi) = casi sin pérdida, para luego recomprimir y compartir
+        alta_calidad = config.get("video_salida_alta_calidad", False)
+        ruta_salida = CARPETA_SALIDA / f"{ruta_video.stem}_procesado.{'avi' if alta_calidad else 'mp4'}"
         self.detector.reiniciar_seguimiento()
         inicio = time.perf_counter()
         with FuenteArchivo(ruta_video, config["procesar_cada_n_frames"]) as fuente:
             if config["guardar_video_salida"]:
                 ruta_salida.parent.mkdir(parents=True, exist_ok=True)
-                escritor = cv2.VideoWriter(str(ruta_salida), cv2.VideoWriter_fourcc(*"mp4v"),
+                codec = "MJPG" if alta_calidad else "mp4v"
+                escritor = cv2.VideoWriter(str(ruta_salida), cv2.VideoWriter_fourcc(*codec),
                                            fuente.fps / fuente.cada_n, (fuente.ancho, fuente.alto))
+                if alta_calidad:
+                    escritor.set(cv2.VIDEOWRITER_PROP_QUALITY, 98)
 
             for frame in fuente:
                 procesados += 1

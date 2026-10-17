@@ -4,7 +4,7 @@ REM Doble clic para ejecutar. El avance se ve en esta ventana; no la cierres mie
 REM Se guarda al terminar cada epoca: si se apaga el PC, al volver a abrir este archivo sigue donde iba.
 REM
 REM Para una corrida nueva, cambiar NOMBRE (y BASE si se quiere partir de otro modelo).
-set NOMBRE=v3
+set NOMBRE=v4
 set BASE=models/detector_colombia.pt
 
 title Entrenando detector %NOMBRE% - no cerrar esta ventana

@@ -21,4 +21,4 @@ mostrar_ventana: true
 guardar_video_salida: true
 ruta_bd: data/placas.db
 ruta_log: outputs/lecturas.csv
-modelo_detector: models/detector_colombia_v3.pt   # anteriores: models/detector_colombia_v1.pt, models/detector_colombia.pt | placas extranjeras: models/detector_placas.pt
+modelo_detector: models/detector_colombia_v4.pt   # anteriores: v3, v1, models/detector_colombia.pt | placas extranjeras: models/detector_placas.pt
