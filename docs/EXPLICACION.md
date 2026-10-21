@@ -1,7 +1,11 @@
 # Cómo funciona el lector de placas (explicación paso a paso)
 
 > Documento para ir entendiendo el código. Se actualiza a medida que avanzamos.
-> Estado: **Fase 1 completa** (video → detección + seguimiento → OCR → validación → votación → BD → alertas).
+> Estado: **Fase 1 completa** (video → detección + seguimiento → OCR → validación → votación → BD → alertas),
+> **modelos propios entrenados** (sección 9) y **Fase 2: app Android funcionando** (sección 10).
+>
+> Las secciones 1 a 8 describen la Fase 1 como se construyó al inicio (con EasyOCR y modelos
+> descargados). Hoy el detector y el OCR son modelos **entrenados por nosotros**: ver sección 9.
 
 ---
 
@@ -365,3 +369,115 @@ calidad ayudarán.
 - **ByteTrack**: el algoritmo de seguimiento que usa YOLO por defecto.
 - **track_id**: número que el seguimiento le asigna a cada vehículo.
 - **SQLite**: base de datos en un solo archivo, incluida en Python.
+- **ONNX**: formato estándar para guardar redes neuronales; lo pueden ejecutar PC, Android e iPhone.
+- **ONNX Runtime**: el motor gratuito (de Microsoft) que ejecuta modelos ONNX dentro de la app.
+- **Flutter / Dart**: herramienta de Google para hacer apps (Android e iPhone con un solo código) y su lenguaje.
+- **APK**: el archivo instalador de una app de Android.
+- **Isolate**: un hilo en segundo plano de Dart; ahí corren los modelos para no congelar la cámara.
+
+---
+
+## 9. Modelos propios (entrenados con videos de Bogotá)
+
+Los modelos descargados al inicio funcionaban, pero no bastaban: EasyOCR leía bien solo el
+**7 %** de las placas colombianas y pesaba más de 100 MB (no cabe en un celular). Por eso
+entrenamos los dos modelos con datos propios.
+
+| Modelo | Archivo oficial | Base | Entrenado con | Resultado |
+|---|---|---|---|---|
+| **Detector** (¿dónde hay placa?) | `models/detector_colombia_v4.pt` (6 MB) | YOLOv8n colombiano | Roboflow + frames de 3 videos de día y 1 de noche, revisados a mano | encuentra 83–88 de cada 100 placas; 96 con lluvia |
+| **OCR** (¿qué dice?) | `models/ocr_colombia.onnx` (3 MB) | fast-plate-ocr global (MIT) | Roboflow (caracteres) + vehículos de videos de día y noche, revisados a mano | ~9 de cada 10 placas bien leídas en video real |
+
+**Cómo se entrenaron** (todo con scripts en `scripts/`):
+
+```
+ video ─► extraer_frames ─► autoetiquetar ─► (persona) revisar_cajas ─► etiquetas_detector ─► entrenar_detector
+          1 frame/seg       detector grande    cuadrícula: verde=placa     dataset YOLO        detector_vN
+                            + OCR proponen     rojo=no placa, gris=duda
+
+ video ─► recortes_ocr_video ─► (persona) revisar_placas_video ─► preparar_ocr_combinado ─► entrenar_ocr.bat
+          recortes por vehículo  1 imagen por vehículo:             Roboflow + videos          OCR nuevo
+          + placa por votación   bien / mal / corregir
+```
+
+**Reglas que seguimos:**
+- De cada video se aparta un tramo **solo de prueba** (nunca se entrena con él) para medir de
+  forma honesta. Los tramos están anotados en `CLAUDE.md`.
+- Un modelo nuevo **solo se adopta si no empeora de día** (las pruebas de día, noche y lluvia se
+  corren cada vez). Los anteriores quedan como respaldo en `models/`.
+- Se entrena siempre partiendo del modelo base, no de uno ya afinado (eso empeoró el detector v2).
+
+---
+
+## 10. Fase 2: la app de celular (Android)
+
+### 10.1 Cómo funciona dentro del celular
+
+Todo ocurre **dentro del teléfono, sin internet ni servidores**:
+
+```
+ Cámara (1080p) ─► girar imagen ─► DETECTOR ─► recortar cada placa ─► OCR ─► validar ABC123/ABC12D
+                   (el sensor la    ¿dónde hay    (+10 % de margen,     ¿qué      (placas.dart)
+                    entrega         placas?        128×64 px)           dice?
+                    acostada)                                                 │
+                                                                              ▼
+ pantalla ◄── dibujar cajas: AMARILLO "?" leyendo · VERDE confirmada ◄── votación ◄── seguimiento
+                                                                     (3 lecturas)   (mismo vehículo
+                                                                                     entre cuadros)
+```
+
+- Los dos modelos corren en un **hilo aparte** (isolate) para que la cámara no se congele.
+  Mientras procesa un cuadro, los que llegan se descartan; toma el siguiente cuando queda libre.
+- Arriba se ven los **FPS** (cuadros analizados por segundo) y cuánto tarda cada modelo.
+
+### 10.2 Cómo se construyó
+
+| Paso | Qué se hizo | Por qué |
+|---|---|---|
+| 1 | Instalar Flutter (`C:\src\flutter`), Java 17 y el SDK de Android (`%LOCALAPPDATA%\Android\Sdk`) | herramientas gratuitas para crear el APK; no hace falta Android Studio |
+| 2 | Convertir los modelos a **ONNX** (`models/movil/`) | Python no corre en el celular; ONNX Runtime sí. Se verificó que leen igual en las 5 pruebas (día, noche, lluvia) |
+| 3 | Traducir la lógica de Python a Dart | validación (`plate_utils.py` → `placas.dart`) y votación (`tracker.py` → `votacion.dart`) con **las mismas pruebas** |
+| 4 | Escribir lo nuevo del celular | cámara en vivo, giro de imagen, seguimiento sencillo (en el PC lo hacía YOLO), dibujo en pantalla |
+| 5 | Compilar el APK | un solo archivo instalable en cualquier Android 7.0 o superior |
+
+### 10.3 Dónde está cada cosa
+
+```
+lector_placas/
+├── app/                          ← EL PROGRAMA DE LA APP (Flutter)
+│   ├── lib/
+│   │   ├── main.dart             ← pantalla: cámara, cajas y lista de placas confirmadas
+│   │   ├── motor.dart            ← corre los modelos (giro de imagen, detector, OCR) en segundo plano
+│   │   ├── placas.dart           ← validación colombiana (traducida de plate_utils.py)
+│   │   ├── votacion.dart         ← votación y unión de vehículos (traducida de tracker.py)
+│   │   └── seguimiento.dart      ← sigue cada vehículo entre cuadros
+│   ├── assets/models/            ← detector.onnx (11,7 MB) y ocr.onnx (2,9 MB), dentro de la app
+│   ├── test/                     ← 21 pruebas automáticas
+│   └── android/                  ← configuración de Android (permiso de cámara, nombre, versión mínima)
+├── models/movil/                 ← modelos convertidos para celular (originales)
+└── outputs/app/
+    └── lector_placas_v0.1.apk    ← el instalador (79 MB)
+```
+
+El programa del PC (`src/`, `scripts/`) sigue igual: se usa para **entrenar y probar** modelos.
+
+### 10.4 Comandos
+
+```powershell
+cd app
+C:\src\flutter\bin\flutter test                    # las 21 pruebas de la app
+C:\src\flutter\bin\flutter build apk --release     # genera app\build\app\outputs\flutter-apk\app-release.apk
+```
+
+**Si se entrena un modelo mejor:** convertirlo a ONNX en `models/movil/`, copiarlo a
+`app/assets/models/` y volver a compilar.
+
+**Para instalar en un celular:** pasar el APK (WhatsApp, Drive o cable), abrirlo y permitir
+"instalar apps de origen desconocido" (una sola vez), y aceptar el permiso de cámara.
+
+### 10.5 Pendiente para versiones siguientes
+
+- Lista de **placas de interés** y **alerta** (sonido + vibración) cuando aparezca una.
+- Historial de placas vistas (con hora y, opcionalmente, GPS), protegido (Ley 1581).
+- Pruebas con el celular montado en la moto o en el casco; medir batería y calentamiento.
+- Versión para iPhone (necesita un Mac o un servicio de compilación en la nube).

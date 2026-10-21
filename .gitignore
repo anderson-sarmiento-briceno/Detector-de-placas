@@ -16,6 +16,8 @@ models/*.onnx
 models/ocr_base/
 models/ocr_entrenados/
 models/detector_entrenados/
+models/movil/*.onnx
+app/assets/models/*.onnx
 *.keras
 tensorboard_logs/
 *.log
